@@ -8,7 +8,7 @@ import { Skull, Shield, Moon, Sun, Scroll, Play, UserPlus, Flame, Search, Globe,
 // 🚀 第一步：请在这里填入你自己的 Firebase 配置
 // ==========================================
 const firebaseConfig = {
-   apiKey: "AIzaSyB6eQDaVvrzI9AD3lQYQeWGWuIspmXPIbM",
+  apiKey: "AIzaSyB6eQDaVvrzI9AD3lQYQeWGWuIspmXPIbM",
   authDomain: "salem-a3310.firebaseapp.com",
   projectId: "salem-a3310",
   storageBucket: "salem-a3310.firebasestorage.app",
@@ -97,6 +97,9 @@ export default function SalemGameV3() {
   const [aiResult, setAiResult] = useState('');
   const [ghostMessageUsed, setGhostMessageUsed] = useState(false);
 
+  // 新增：用于显示抽牌结果的本地状态弹窗
+  const [showConspiracyResult, setShowConspiracyResult] = useState(null);
+
   // --- Auth ---
   useEffect(() => {
     // 公网版采用最稳定的纯匿名登录
@@ -135,6 +138,7 @@ export default function SalemGameV3() {
           log: ['房间已建立。等待玩家加入...'],
           nightActions: {},
           conspiracyActions: {},
+          privateLogs: {}, 
           winner: null,
           blackCatTarget: null,
           witchChat: [] 
@@ -161,6 +165,13 @@ export default function SalemGameV3() {
       chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [gameState?.witchChat, gameState?.status]);
+
+  // 新增：监听并显示身份窃取的私密通知弹窗
+  useEffect(() => {
+    if (gameState?.privateLogs && user?.uid && gameState.privateLogs[user.uid]) {
+      setShowConspiracyResult(gameState.privateLogs[user.uid]);
+    }
+  }, [gameState?.privateLogs, user?.uid]);
 
   // --- Lobby Actions ---
   const joinGame = async () => {
@@ -621,12 +632,16 @@ export default function SalemGameV3() {
       }
     });
 
+    let newPrivateLogs = {};
+
     Object.entries(cardsTaken).forEach(([myUid, take]) => {
       if (currentPlayers[myUid]?.tryx) {
         let newCard = {...take.card};
         newCard.revealed = false; 
         currentPlayers[myUid].tryx.push(newCard);
         currentPlayers[myUid].tryx = shuffle(currentPlayers[myUid].tryx); 
+        // 记录每个人具体抽到了什么牌
+        newPrivateLogs[myUid] = `你从 ${currentPlayers[take.fromUid]?.name || '左侧玩家'} 处抽到了【${take.card.role}】！`;
       }
     });
 
@@ -655,6 +670,7 @@ export default function SalemGameV3() {
       players: currentPlayers,
       log: currentLog,
       conspiracyActions: {},
+      privateLogs: newPrivateLogs,
       ...(winner ? { winner } : {})
     });
     
@@ -855,6 +871,17 @@ export default function SalemGameV3() {
           {/* GAME BOARD */}
           {gameState && gameState.status !== 'lobby' && gameState.status !== 'gameover' && (
             <div className="space-y-6">
+              
+              {/* 新增：最新动态横幅置顶显示在屏幕正中 */}
+              {gameState.log && gameState.log.length > 0 && (
+                <div className="bg-slate-800/90 border-l-4 border-amber-500 p-4 md:p-6 rounded-r-xl shadow-lg flex items-center gap-4">
+                  <Flame className="w-8 h-8 text-amber-500 animate-pulse flex-shrink-0" />
+                  <div className="flex-1 text-lg md:text-xl font-bold text-amber-50">
+                    {gameState.log[gameState.log.length - 1]}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {(gameState.turnOrder || []).map((uid, idx) => {
                   const player = gameState.players[uid];
@@ -881,13 +908,16 @@ export default function SalemGameV3() {
                       </div>
                       
                       <div className="text-xs text-amber-500/80 font-bold mb-2 pb-2 border-b border-slate-700">
-                        {player.character?.name || '无名之辈'} (阈值: {player.character?.threshold || 7})
+                        <div>{player.character?.name || '无名之辈'} (阈值: {player.character?.threshold || 7})</div>
+                        <div className="text-[10px] text-slate-400 font-normal leading-tight mt-1 bg-slate-900/50 p-1.5 rounded">
+                          {player.character?.desc || '暂无技能描述'}
+                        </div>
                       </div>
                       
                       <div className="flex gap-1 mb-3">
                         {(player.tryx || []).map((t, i) => (
-                          <div key={i} className={`flex-1 h-8 rounded flex items-center justify-center text-xs font-bold border ${t.revealed ? (t.role === ROLES.WITCH ? 'bg-purple-900/50 border-purple-500 text-purple-200' : 'bg-blue-900/50 border-blue-500 text-blue-200') : 'bg-slate-700 border-slate-600 text-slate-500'}`}>
-                            {t.revealed ? t.role : '?'}
+                          <div key={i} className={`flex-1 h-8 rounded flex items-center justify-center text-xs font-bold border ${t.revealed ? (t.role === ROLES.WITCH ? 'bg-purple-900/50 border-purple-500 text-purple-200' : 'bg-blue-900/50 border-blue-500 text-blue-200') : (isMe ? 'bg-slate-800 border-slate-500 text-slate-300' : 'bg-slate-700 border-slate-600 text-slate-500')}`}>
+                            {t.revealed ? t.role : (isMe ? <span className="flex items-center gap-1"><Eye className="w-3 h-3"/>{t.role}</span> : '?')}
                           </div>
                         ))}
                       </div>
@@ -1195,6 +1225,25 @@ export default function SalemGameV3() {
         </div>
 
       </main>
+
+      {/* 新增：身份窃取结果弹窗 */}
+      {showConspiracyResult && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+           <div className="bg-slate-900 border-2 border-purple-500 p-8 rounded-2xl text-center max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] transform transition-all scale-100">
+              <div className="w-16 h-16 bg-purple-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                 <Eye className="w-8 h-8 text-purple-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-purple-300 mb-4">身份窃取结果</h3>
+              <p className="text-lg text-white mb-8">{showConspiracyResult}</p>
+              <button 
+                onClick={() => setShowConspiracyResult(null)} 
+                className="w-full bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold text-lg shadow-lg"
+              >
+                确认并隐藏
+              </button>
+           </div>
+        </div>
+      )}
     </div>
   );
 }
